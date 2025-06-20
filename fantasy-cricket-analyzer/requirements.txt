@@ -1,0 +1,4 @@
+CrewAI
+pandas
+pyyaml
+streamlit
