@@ -1,5 +1,6 @@
 import json
 import os
+import yaml
 from collections import defaultdict
 from agents.performance_agent import PerformanceAgent  # <-- Added import
 
@@ -46,21 +47,23 @@ def main():
             continue
 
         if source == "1":
-            folder = r"C:\Users\sidha\OneDrive\Desktop\cricket_data.json"
+            folder = r"c:\Users\sidha\OneDrive\Desktop\NEW DATA"
         elif source == "2":
             folder = r"C:\Users\sidha\OneDrive\Desktop\recently_added_2.json"
         else:
             print("Invalid source selection.\n")
             continue
 
-        
-
         file_path = rf"{folder}\{match}.json"
         print("Trying to open:", file_path)
         print("File exists:", os.path.exists(file_path))
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data_json = json.load(f)
+            if file_path.endswith('.yaml') or file_path.endswith('.yml'):
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data_json = yaml.safe_load(f)
+            else:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data_json = json.load(f)
         except FileNotFoundError:
             print("File not found. Please enter a valid match ID.\n")
             continue
@@ -73,7 +76,9 @@ def main():
         outcome = info.get("outcome", {})
         winner = outcome.get("winner", "No result")
         date = info.get("dates", ["Unknown date"])[0]
-        player_of_match = info.get("player_of_match", ["Unknown"])[0]
+        player_of_match = info.get("player_of_match", ["Unknown"])
+        if isinstance(player_of_match, list):
+            player_of_match = player_of_match[0] if player_of_match else "Unknown"
 
         print(f"\nMatch: {teams[0]} vs {teams[1]}")
         print(f"Event: {event}")
@@ -82,6 +87,9 @@ def main():
         print(f"Match Type: {match_type}")
         print(f"Winner: {winner}")
         print(f"Player of the Match: {player_of_match}\n")
+
+        global_player_scores = defaultdict(int)
+        global_bowler_wickets = defaultdict(int)
 
         for inning in data_json.get("innings", []):
             team = inning.get("team", "Unknown team")
@@ -245,18 +253,61 @@ def main():
             for fielder, stats in fielding_stats.items():
                 details = ", ".join(f"{k}: {v}" for k, v in stats.items())
                 print(f"  {fielder}: {details}")
+            # Aggregate stats for the full match
+            for player, runs in player_scores.items():
+                global_player_scores[player] += runs
+            for player, wickets in bowler_wickets.items():
+                global_bowler_wickets[player] += wickets
             print()
+
+        # OUTSIDE the innings loop: recommend fantasy team for the full match
+        print("Recommended Fantasy Team (Full Match):")
+        # Top 3 batters by runs
+        top_batters = sorted(global_player_scores.items(), key=lambda x: -x[1])[:3]
+        print("  Top Batters:")
+        for i, (player, runs) in enumerate(top_batters, 1):
+            print(f"    {i}. {player} ({runs} runs)")
+
+        # Top 3 bowlers by wickets
+        top_bowlers = sorted(global_bowler_wickets.items(), key=lambda x: -x[1])[:3]
+        print("  Top Bowlers:")
+        for i, (player, wickets) in enumerate(top_bowlers, 1):
+            print(f"    {i}. {player} ({wickets} wickets)")
+
+        # Top 3 all-rounders: players who scored runs and took wickets
+        all_rounders = [
+            (player, global_player_scores[player], global_bowler_wickets[player])
+            for player in set(global_player_scores) & set(global_bowler_wickets)
+            if global_player_scores[player] > 0 and global_bowler_wickets[player] > 0
+        ]
+        all_rounders = sorted(all_rounders, key=lambda x: (-(x[1] + x[2]*20)))[:3]
+        print("  All-rounders:")
+        if all_rounders:
+            for i, (player, runs, wickets) in enumerate(all_rounders, 1):
+                print(f"    {i}. {player} ({runs} runs, {wickets} wickets)")
+        else:
+            print("    None")
+        print()
+
         # Player of the match stats
-        print("Player of the Match stats:")
+        print(f"Player of the Match: {player_of_match}")
         for inning in data_json.get("innings", []):
             player_scores = defaultdict(int)
             player_balls = defaultdict(int)
             player_fours = defaultdict(int)
             player_sixes = defaultdict(int)
+            # Bowling stats
+            bowler_balls = defaultdict(int)
+            bowler_runs = defaultdict(int)
+            bowler_wickets = defaultdict(int)
+            bowler_extras = defaultdict(int)
             for over in inning.get("overs", []):
                 for delivery in over.get("deliveries", []):
                     batter = delivery.get("batter")
+                    bowler = delivery.get("bowler")
                     batter_runs = delivery.get("runs", {}).get("batter", 0)
+                    runs = delivery.get("runs", {}).get("total", 0)
+                    extras = delivery.get("runs", {}).get("extras", 0)
                     if batter == player_of_match:
                         player_scores[batter] += batter_runs
                         player_balls[batter] += 1
@@ -264,8 +315,24 @@ def main():
                             player_fours[batter] += 1
                         if batter_runs == 6:
                             player_sixes[batter] += 1
+                    if bowler == player_of_match:
+                        bowler_balls[bowler] += 1
+                        bowler_runs[bowler] += runs
+                        bowler_extras[bowler] += extras
+                        if "wickets" in delivery:
+                            bowler_wickets[bowler] += len(delivery["wickets"])
+            # Print batting stats if available
             if player_of_match in player_scores:
-                print(f"  {player_of_match}: {player_scores[player_of_match]} runs, {player_balls[player_of_match]} balls, {player_fours[player_of_match]}/4s, {player_sixes[player_of_match]}/6s")
+                print(f"  Batting: {player_scores[player_of_match]} runs, {player_balls[player_of_match]} balls, {player_fours[player_of_match]}/4s, {player_sixes[player_of_match]}/6s")
+            # Print bowling stats if available
+            if player_of_match in bowler_balls:
+                balls = bowler_balls[player_of_match]
+                overs = balls // 6 + (balls % 6) / 6
+                runs_conceded = bowler_runs[player_of_match]
+                wickets = bowler_wickets[player_of_match]
+                extras = bowler_extras[player_of_match]
+                econ = runs_conceded / overs if overs else 0
+                print(f"  Bowling: {overs:.1f} overs, {runs_conceded} runs, {wickets} wickets, {extras} extras, Econ: {econ:.2f}")
         print()
 
 if __name__ == "__main__":
