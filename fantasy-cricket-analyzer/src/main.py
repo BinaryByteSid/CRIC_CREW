@@ -35,8 +35,8 @@ def get_powerplay_score(overs, powerplays):
 def main():
     while True:
         print("Select data source:")
-        print("1. Main matches")
-        print("2. Archived matches")
+        print("1. RECENT MATCHES")
+        print("2. IPL MATCHES")
         print("3. Exit")
         source = input("Enter 1, 2, or 3: ")
         if source == "3":
@@ -47,9 +47,9 @@ def main():
             continue
 
         if source == "1":
-            folder = r"c:\Users\sidha\OneDrive\Desktop\NEW DATA"
+            folder = r"C:\Users\sidha\OneDrive\Desktop\CRIC_CREW\NEW DATA"
         elif source == "2":
-            folder = r"C:\Users\sidha\OneDrive\Desktop\recently_added_2.json"
+            folder = r"C:\Users\sidha\OneDrive\Desktop\IPL DATA"
         else:
             print("Invalid source selection.\n")
             continue
@@ -90,6 +90,9 @@ def main():
 
         global_player_scores = defaultdict(int)
         global_bowler_wickets = defaultdict(int)
+        global_player_fours = defaultdict(int)
+        global_player_sixes = defaultdict(int)
+        global_fielding_stats = defaultdict(lambda: defaultdict(int))
 
         for inning in data_json.get("innings", []):
             team = inning.get("team", "Unknown team")
@@ -253,11 +256,19 @@ def main():
             for fielder, stats in fielding_stats.items():
                 details = ", ".join(f"{k}: {v}" for k, v in stats.items())
                 print(f"  {fielder}: {details}")
+
             # Aggregate stats for the full match
             for player, runs in player_scores.items():
                 global_player_scores[player] += runs
             for player, wickets in bowler_wickets.items():
                 global_bowler_wickets[player] += wickets
+            for player, fours in player_fours.items():
+                global_player_fours[player] += fours
+            for player, sixes in player_sixes.items():
+                global_player_sixes[player] += sixes
+            for fielder, stats in fielding_stats.items():
+                for k, v in stats.items():
+                    global_fielding_stats[fielder][k] += v
             print()
 
         # OUTSIDE the innings loop: recommend fantasy team for the full match
@@ -287,6 +298,37 @@ def main():
                 print(f"    {i}. {player} ({runs} runs, {wickets} wickets)")
         else:
             print("    None")
+        print()
+
+        # Advanced Fantasy Recommendation
+        POINTS = {
+            "run": 1,
+            "wicket": 25,
+            "four": 1,
+            "six": 2,
+            "catch": 8,
+            "stumping": 12,
+            "run_out": 12,
+        }
+
+        fantasy_points = defaultdict(int)
+        for player, runs in global_player_scores.items():
+            fantasy_points[player] += runs * POINTS["run"]
+        for player, wickets in global_bowler_wickets.items():
+            fantasy_points[player] += wickets * POINTS["wicket"]
+        for player, fours in global_player_fours.items():
+            fantasy_points[player] += fours * POINTS["four"]
+        for player, sixes in global_player_sixes.items():
+            fantasy_points[player] += sixes * POINTS["six"]
+        for player, stats in global_fielding_stats.items():
+            fantasy_points[player] += stats.get("catches", 0) * POINTS["catch"]
+            fantasy_points[player] += stats.get("stumpings", 0) * POINTS["stumping"]
+            fantasy_points[player] += stats.get("run outs", 0) * POINTS["run_out"]
+
+        top_fantasy = sorted(fantasy_points.items(), key=lambda x: -x[1])[:11]
+        print("Dream Fantasy XI (by fantasy points):")
+        for i, (player, pts) in enumerate(top_fantasy, 1):
+            print(f"  {i}. {player} ({pts} pts)")
         print()
 
         # Player of the match stats
